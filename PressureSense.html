@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluetooth Data Plotter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        canvas {
+            border: 1px solid #000;
+        }
+
+        #controls {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Bluetooth Data Plotter</h1>
+    <div id="controls">
+        <button id="connectBtn">Connect to Bluetooth Device</button>
+        <label for="timeWindow">Time Window (seconds):</label>
+        <input type="number" id="timeWindow" value="30" min="1" max="300">
+    </div>
+    <canvas id="plotCanvas" width="800" height="400"></canvas>
+
+    <script>
+        const serviceUuid = 'b9e51711-5665-4cca-adf8-cfbef91a97c4';
+        const characteristicUuid1 = '49d190d5-a199-4850-956d-74be95d4dea2';
+        const characteristicUuid2 = '3144fe5c-9e80-4bbc-8c1f-6baaa4c50b49';
+        let characteristic1;
+        let characteristic2;
+        let data1 = [];
+        let data2 = [];
+        let startTime;
+        let animationId;
+
+        const canvas = document.getElementById('plotCanvas');
+        const ctx = canvas.getContext('2d');
+        const connectBtn = document.getElementById('connectBtn');
+        const timeWindowInput = document.getElementById('timeWindow');
+
+        connectBtn.addEventListener('click', connectToDevice);
+        timeWindowInput.addEventListener('change', () => {
+            data = []; // Clear data when time window changes
+        });
+
+        async function connectToDevice() {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [serviceUuid] }]
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(serviceUuid);
+
+                characteristic1 = await service.getCharacteristic(characteristicUuid1);
+                characteristic1.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged1);
+                await characteristic1.startNotifications();
+
+                characteristic2 = await service.getCharacteristic(characteristicUuid2);
+                characteristic2.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged2);
+                await characteristic2.startNotifications();
+
+                connectBtn.textContent = 'Connected';
+                connectBtn.disabled = true;
+                startTime = Date.now();
+                requestAnimationFrame(updatePlot);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred while connecting to the device.');
+            }
+        }
+
+        function handleCharacteristicValueChanged1(event) {
+            const value = event.target.value;
+            const floatValue = value.getFloat32(0, true); // Assuming little-endian
+            const timestamp = Date.now();
+            data1.push({ time: timestamp, value: floatValue });
+
+            // Remove old data outside the time window
+            const timeWindow = timeWindowInput.value * 1000; // Convert to milliseconds
+            while (data1.length > 0 && timestamp - data1[0].time > timeWindow) {
+                data1.shift();
+            }
+        }
+
+        function handleCharacteristicValueChanged2(event) {
+            const value = event.target.value;
+            const floatValue = value.getFloat32(0, true); // Assuming little-endian
+            const timestamp = Date.now();
+            data2.push({ time: timestamp, value: floatValue });
+
+            // Remove old data outside the time window
+            const timeWindow = timeWindowInput.value * 1000; // Convert to milliseconds
+            while (data2.length > 0 && timestamp - data2[0].time > timeWindow) {
+                data2.shift();
+            }
+        }
+
+        function updatePlot() {
+            const timeWindow = timeWindowInput.value * 1000; // Convert to milliseconds
+            const currentTime = Date.now();
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw axes
+            ctx.beginPath();
+            ctx.moveTo(50, 50);
+            ctx.lineTo(50, canvas.height - 50);
+            ctx.lineTo(canvas.width - 50, canvas.height - 50);
+            ctx.stroke();
+
+            // Plot data
+            if (data1.length > 1) {
+                ctx.beginPath();
+                data1.forEach((point, index) => {
+                    const x = 50 + (point.time - (currentTime - timeWindow)) / timeWindow * (canvas.width - 100);
+                    const y = canvas.height - 50 - (point.value / 20) * (canvas.height - 100); // Assuming value range 0-20
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.strokeStyle = 'blue';
+                ctx.stroke();
+            }
+            if (data2.length > 1) {
+                ctx.beginPath();
+                data2.forEach((point, index) => {
+                    const x = 50 + (point.time - (currentTime - timeWindow)) / timeWindow * (canvas.width - 100);
+                    const y = canvas.height - 50 - (point.value / 20) * (canvas.height - 100); // Assuming value range 0-20
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.strokeStyle = 'red';
+                ctx.stroke();
+            }
+
+            animationId = requestAnimationFrame(updatePlot);
+        }
+    </script>
+</body>
+
+</html>
