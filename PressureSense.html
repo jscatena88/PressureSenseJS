@@ -9,14 +9,23 @@
         body {
             font-family: Arial, sans-serif;
             text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
         }
 
         canvas {
             border: 1px solid #000;
+            margin-top: 20px;
         }
 
         #controls {
             margin: 20px 0;
+        }
+
+        label,
+        input {
+            margin-right: 10px;
         }
     </style>
 </head>
@@ -31,45 +40,53 @@
     <canvas id="plotCanvas" width="800" height="400"></canvas>
 
     <script>
-        const serviceUuid = 'b9e51711-5665-4cca-adf8-cfbef91a97c4';
-        const characteristicUuid1 = '49d190d5-a199-4850-956d-74be95d4dea2';
-        const characteristicUuid2 = '3144fe5c-9e80-4bbc-8c1f-6baaa4c50b49';
-        let characteristic1;
-        let characteristic2;
-        let data1 = [];
-        let data2 = [];
-        let startTime;
-        let animationId;
+        const BLE_CONFIG = {
+            serviceUuid: 'b9e51711-5665-4cca-adf8-cfbef91a97c4',
+            characteristicUuid1: '49d190d5-a199-4850-956d-74be95d4dea2',
+            characteristicUuid2: '3144fe5c-9e80-4bbc-8c1f-6baaa4c50b49'
+        };
 
-        const canvas = document.getElementById('plotCanvas');
-        const ctx = canvas.getContext('2d');
-        const connectBtn = document.getElementById('connectBtn');
-        const timeWindowInput = document.getElementById('timeWindow');
+        const UI = {
+            canvas: document.getElementById('plotCanvas'),
+            ctx: document.getElementById('plotCanvas').getContext('2d'),
+            connectBtn: document.getElementById('connectBtn'),
+            timeWindowInput: document.getElementById('timeWindow')
+        };
 
-        connectBtn.addEventListener('click', connectToDevice);
-        timeWindowInput.addEventListener('change', () => {
-            data = []; // Clear data when time window changes
+        const State = {
+            characteristic1: null,
+            characteristic2: null,
+            data1: [],
+            data2: [],
+            startTime: null,
+            animationId: null
+        };
+
+        UI.connectBtn.addEventListener('click', connectToDevice);
+        UI.timeWindowInput.addEventListener('change', () => {
+            State.data1 = [];
+            State.data2 = [];
         });
 
         async function connectToDevice() {
             try {
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [serviceUuid] }]
+                    filters: [{ services: [BLE_CONFIG.serviceUuid] }]
                 });
                 const server = await device.gatt.connect();
-                const service = await server.getPrimaryService(serviceUuid);
+                const service = await server.getPrimaryService(BLE_CONFIG.serviceUuid);
 
-                characteristic1 = await service.getCharacteristic(characteristicUuid1);
-                characteristic1.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged1);
-                await characteristic1.startNotifications();
+                State.characteristic1 = await service.getCharacteristic(BLE_CONFIG.characteristicUuid1);
+                State.characteristic1.addEventListener('characteristicvaluechanged', event => handleCharacteristicValueChanged(event, State.data1));
+                await State.characteristic1.startNotifications();
 
-                characteristic2 = await service.getCharacteristic(characteristicUuid2);
-                characteristic2.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged2);
-                await characteristic2.startNotifications();
+                State.characteristic2 = await service.getCharacteristic(BLE_CONFIG.characteristicUuid2);
+                State.characteristic2.addEventListener('characteristicvaluechanged', event => handleCharacteristicValueChanged(event, State.data2));
+                await State.characteristic2.startNotifications();
 
-                connectBtn.textContent = 'Connected';
-                connectBtn.disabled = true;
-                startTime = Date.now();
+                UI.connectBtn.textContent = 'Connected';
+                UI.connectBtn.disabled = true;
+                State.startTime = Date.now();
                 requestAnimationFrame(updatePlot);
             } catch (error) {
                 console.error('Error:', error);
@@ -77,76 +94,49 @@
             }
         }
 
-        function handleCharacteristicValueChanged1(event) {
+        function handleCharacteristicValueChanged(event, dataArray) {
             const value = event.target.value;
             const floatValue = value.getFloat32(0, true); // Assuming little-endian
             const timestamp = Date.now();
-            data1.push({ time: timestamp, value: floatValue });
+            dataArray.push({ time: timestamp, value: floatValue });
 
-            // Remove old data outside the time window
-            const timeWindow = timeWindowInput.value * 1000; // Convert to milliseconds
-            while (data1.length > 0 && timestamp - data1[0].time > timeWindow) {
-                data1.shift();
-            }
-        }
-
-        function handleCharacteristicValueChanged2(event) {
-            const value = event.target.value;
-            const floatValue = value.getFloat32(0, true); // Assuming little-endian
-            const timestamp = Date.now();
-            data2.push({ time: timestamp, value: floatValue });
-
-            // Remove old data outside the time window
-            const timeWindow = timeWindowInput.value * 1000; // Convert to milliseconds
-            while (data2.length > 0 && timestamp - data2[0].time > timeWindow) {
-                data2.shift();
+            const timeWindow = UI.timeWindowInput.value * 1000; // Convert to milliseconds
+            while (dataArray.length > 0 && timestamp - dataArray[0].time > timeWindow) {
+                dataArray.shift();
             }
         }
 
         function updatePlot() {
-            const timeWindow = timeWindowInput.value * 1000; // Convert to milliseconds
+            const timeWindow = UI.timeWindowInput.value * 1000; // Convert to milliseconds
             const currentTime = Date.now();
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            UI.ctx.clearRect(0, 0, UI.canvas.width, UI.canvas.height);
+            drawAxes();
+            plotData(State.data1, 'blue', currentTime, timeWindow);
+            plotData(State.data2, 'red', currentTime, timeWindow);
 
-            // Draw axes
-            ctx.beginPath();
-            ctx.moveTo(50, 50);
-            ctx.lineTo(50, canvas.height - 50);
-            ctx.lineTo(canvas.width - 50, canvas.height - 50);
-            ctx.stroke();
+            State.animationId = requestAnimationFrame(updatePlot);
+        }
 
-            // Plot data
-            if (data1.length > 1) {
-                ctx.beginPath();
-                data1.forEach((point, index) => {
-                    const x = 50 + (point.time - (currentTime - timeWindow)) / timeWindow * (canvas.width - 100);
-                    const y = canvas.height - 50 - (point.value / 20) * (canvas.height - 100); // Assuming value range 0-20
-                    if (index === 0) {
-                        ctx.moveTo(x, y);
-                    } else {
-                        ctx.lineTo(x, y);
-                    }
+        function drawAxes() {
+            UI.ctx.beginPath();
+            UI.ctx.moveTo(50, 50);
+            UI.ctx.lineTo(50, UI.canvas.height - 50);
+            UI.ctx.lineTo(UI.canvas.width - 50, UI.canvas.height - 50);
+            UI.ctx.stroke();
+        }
+
+        function plotData(data, color, currentTime, timeWindow) {
+            if (data.length > 1) {
+                UI.ctx.beginPath();
+                data.forEach((point, index) => {
+                    const x = 50 + (point.time - (currentTime - timeWindow)) / timeWindow * (UI.canvas.width - 100);
+                    const y = UI.canvas.height - 50 - (point.value / 20) * (UI.canvas.height - 100); // Assuming value range 0-20
+                    UI.ctx.lineTo(x, y);
                 });
-                ctx.strokeStyle = 'blue';
-                ctx.stroke();
+                UI.ctx.strokeStyle = color;
+                UI.ctx.stroke();
             }
-            if (data2.length > 1) {
-                ctx.beginPath();
-                data2.forEach((point, index) => {
-                    const x = 50 + (point.time - (currentTime - timeWindow)) / timeWindow * (canvas.width - 100);
-                    const y = canvas.height - 50 - (point.value / 20) * (canvas.height - 100); // Assuming value range 0-20
-                    if (index === 0) {
-                        ctx.moveTo(x, y);
-                    } else {
-                        ctx.lineTo(x, y);
-                    }
-                });
-                ctx.strokeStyle = 'red';
-                ctx.stroke();
-            }
-
-            animationId = requestAnimationFrame(updatePlot);
         }
     </script>
 </body>
