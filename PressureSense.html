@@ -98,17 +98,21 @@
         };
 
         UI.connectBtn.addEventListener('click', toggleConnection);
-        UI.timeWindowInput.addEventListener('change', () => {
-            State.data1 = [];
-            State.data2 = [];
-        });
-
+        UI.timeWindowInput.addEventListener('change', handleTimeWindowChange);
         UI.movingAverageSlider.addEventListener('input', updateMovingAverageWindow);
 
         function updateMovingAverageWindow() {
             const logValue = parseFloat(UI.movingAverageSlider.value);
             State.movingAverageWindow = Math.round(Math.pow(10, logValue));
             UI.movingAverageValue.textContent = State.movingAverageWindow;
+        }
+
+        function handleTimeWindowChange() {
+            State.data1 = [];
+            State.data2 = [];
+            if (!State.isConnected) {
+                drawEmptyPlot();
+            }
         }
 
         async function toggleConnection() {
@@ -273,7 +277,7 @@
             UI.ctx.save();
             UI.ctx.translate(15, UI.canvas.height / 2);
             UI.ctx.rotate(-Math.PI / 2);
-            UI.ctx.fillText('Value', 0, 0);
+            UI.ctx.fillText('PSI', 0, 0);
             UI.ctx.restore();
 
             // Y-axis values
