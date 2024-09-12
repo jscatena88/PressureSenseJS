@@ -26,7 +26,7 @@ def run_server():
     # Wrap the socket
     httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
 
-    print(f"Server running on https://localhost:4443")
+    print(f"Server running on https://{local_ip}:4443")
     httpd.serve_forever()
 
 if __name__ == '__main__':
