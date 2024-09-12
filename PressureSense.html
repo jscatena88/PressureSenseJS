@@ -86,16 +86,18 @@
         };
 
         const State = {
+            device: null,
             characteristic1: null,
             characteristic2: null,
             data1: [],
             data2: [],
             startTime: null,
             animationId: null,
-            movingAverageWindow: 1
+            movingAverageWindow: 1,
+            isConnected: false
         };
 
-        UI.connectBtn.addEventListener('click', connectToDevice);
+        UI.connectBtn.addEventListener('click', toggleConnection);
         UI.timeWindowInput.addEventListener('change', () => {
             State.data1 = [];
             State.data2 = [];
@@ -107,6 +109,14 @@
             const logValue = parseFloat(UI.movingAverageSlider.value);
             State.movingAverageWindow = Math.round(Math.pow(10, logValue));
             UI.movingAverageValue.textContent = State.movingAverageWindow;
+        }
+
+        async function toggleConnection() {
+            if (State.isConnected) {
+                await disconnectDevice();
+            } else {
+                await connectToDevice();
+            }
         }
 
         async function connectToDevice() {
@@ -125,14 +135,33 @@
                 State.characteristic2.addEventListener('characteristicvaluechanged', event => handleCharacteristicValueChanged(event, State.data2));
                 await State.characteristic2.startNotifications();
 
-                UI.connectBtn.textContent = 'Connected';
-                UI.connectBtn.disabled = true;
+                State.device = device;
+                State.isConnected = true;
+                UI.connectBtn.textContent = 'Disconnect';
                 State.startTime = Date.now();
-                requestAnimationFrame(updatePlot);
+                if (!State.animationId) {
+                    requestAnimationFrame(updatePlot);
+                }
             } catch (error) {
                 console.error('Error:', error);
                 alert('An error occurred while connecting to the device.');
             }
+        }
+
+        async function disconnectDevice() {
+            if (State.device && State.device.gatt.connected) {
+                await State.device.gatt.disconnect();
+            }
+            State.isConnected = false;
+            State.device = null;
+            State.characteristic1 = null;
+            State.characteristic2 = null;
+            State.data1 = [];
+            State.data2 = [];
+            UI.connectBtn.textContent = 'Connect to Bluetooth Device';
+            cancelAnimationFrame(State.animationId);
+            State.animationId = null;
+            drawEmptyPlot();
         }
 
         function handleCharacteristicValueChanged(event, dataArray) {
@@ -177,6 +206,13 @@
             drawLabels();
 
             State.animationId = requestAnimationFrame(updatePlot);
+        }
+
+        function drawEmptyPlot() {
+            UI.ctx.clearRect(0, 0, UI.canvas.width, UI.canvas.height);
+            drawGrid();
+            drawAxes();
+            drawLabels();
         }
 
         function drawGrid() {
@@ -258,6 +294,9 @@
 
         // Initialize the moving average window
         updateMovingAverageWindow();
+
+        // Draw initial empty plot
+        drawEmptyPlot();
     </script>
 </body>
 
