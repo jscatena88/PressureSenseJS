@@ -27,6 +27,22 @@
         input {
             margin-right: 10px;
         }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 10px;
+        }
+
+        .slider-container input {
+            width: 300px;
+        }
+
+        .slider-container span {
+            min-width: 30px;
+            text-align: left;
+        }
     </style>
 </head>
 
@@ -36,6 +52,11 @@
         <button id="connectBtn">Connect to Bluetooth Device</button>
         <label for="timeWindow">Time Window (seconds):</label>
         <input type="number" id="timeWindow" value="30" min="1" max="300">
+        <div class="slider-container">
+            <label for="movingAverageWindow">Moving Average Window:</label>
+            <input type="range" id="movingAverageWindow" min="0" max="3" step="0.01" value="0">
+            <span id="movingAverageValue">1</span>
+        </div>
     </div>
     <canvas id="plotCanvas" width="800" height="400"></canvas>
 
@@ -50,7 +71,18 @@
             canvas: document.getElementById('plotCanvas'),
             ctx: document.getElementById('plotCanvas').getContext('2d'),
             connectBtn: document.getElementById('connectBtn'),
-            timeWindowInput: document.getElementById('timeWindow')
+            timeWindowInput: document.getElementById('timeWindow'),
+            movingAverageSlider: document.getElementById('movingAverageWindow'),
+            movingAverageValue: document.getElementById('movingAverageValue')
+        };
+
+        const GRAPH_CONFIG = {
+            padding: 50,
+            yMin: 0,
+            yMax: 25,
+            gridColor: '#e0e0e0',
+            axisColor: '#000000',
+            textColor: '#000000'
         };
 
         const State = {
@@ -59,7 +91,8 @@
             data1: [],
             data2: [],
             startTime: null,
-            animationId: null
+            animationId: null,
+            movingAverageWindow: 1
         };
 
         UI.connectBtn.addEventListener('click', connectToDevice);
@@ -67,6 +100,14 @@
             State.data1 = [];
             State.data2 = [];
         });
+
+        UI.movingAverageSlider.addEventListener('input', updateMovingAverageWindow);
+
+        function updateMovingAverageWindow() {
+            const logValue = parseFloat(UI.movingAverageSlider.value);
+            State.movingAverageWindow = Math.round(Math.pow(10, logValue));
+            UI.movingAverageValue.textContent = State.movingAverageWindow;
+        }
 
         async function connectToDevice() {
             try {
@@ -106,23 +147,66 @@
             }
         }
 
+        function calculateMovingAverage(data) {
+            if (State.movingAverageWindow <= 1) return data;
+
+            return data.map((point, index, array) => {
+                const start = Math.max(0, index - State.movingAverageWindow + 1);
+                const windowSlice = array.slice(start, index + 1);
+                const sum = windowSlice.reduce((acc, curr) => acc + curr.value, 0);
+                return {
+                    time: point.time,
+                    value: sum / windowSlice.length
+                };
+            });
+        }
+
         function updatePlot() {
             const timeWindow = UI.timeWindowInput.value * 1000; // Convert to milliseconds
             const currentTime = Date.now();
 
             UI.ctx.clearRect(0, 0, UI.canvas.width, UI.canvas.height);
+            drawGrid();
             drawAxes();
-            plotData(State.data1, 'blue', currentTime, timeWindow);
-            plotData(State.data2, 'red', currentTime, timeWindow);
+
+            const smoothedData1 = calculateMovingAverage(State.data1);
+            const smoothedData2 = calculateMovingAverage(State.data2);
+
+            plotData(smoothedData1, 'blue', currentTime, timeWindow);
+            plotData(smoothedData2, 'red', currentTime, timeWindow);
+            drawLabels();
 
             State.animationId = requestAnimationFrame(updatePlot);
         }
 
+        function drawGrid() {
+            UI.ctx.strokeStyle = GRAPH_CONFIG.gridColor;
+            UI.ctx.lineWidth = 0.5;
+
+            // Vertical lines
+            for (let x = GRAPH_CONFIG.padding; x <= UI.canvas.width - GRAPH_CONFIG.padding; x += 50) {
+                UI.ctx.beginPath();
+                UI.ctx.moveTo(x, GRAPH_CONFIG.padding);
+                UI.ctx.lineTo(x, UI.canvas.height - GRAPH_CONFIG.padding);
+                UI.ctx.stroke();
+            }
+
+            // Horizontal lines
+            for (let y = GRAPH_CONFIG.padding; y <= UI.canvas.height - GRAPH_CONFIG.padding; y += 50) {
+                UI.ctx.beginPath();
+                UI.ctx.moveTo(GRAPH_CONFIG.padding, y);
+                UI.ctx.lineTo(UI.canvas.width - GRAPH_CONFIG.padding, y);
+                UI.ctx.stroke();
+            }
+        }
+
         function drawAxes() {
+            UI.ctx.strokeStyle = GRAPH_CONFIG.axisColor;
+            UI.ctx.lineWidth = 2;
             UI.ctx.beginPath();
-            UI.ctx.moveTo(50, 50);
-            UI.ctx.lineTo(50, UI.canvas.height - 50);
-            UI.ctx.lineTo(UI.canvas.width - 50, UI.canvas.height - 50);
+            UI.ctx.moveTo(GRAPH_CONFIG.padding, GRAPH_CONFIG.padding);
+            UI.ctx.lineTo(GRAPH_CONFIG.padding, UI.canvas.height - GRAPH_CONFIG.padding);
+            UI.ctx.lineTo(UI.canvas.width - GRAPH_CONFIG.padding, UI.canvas.height - GRAPH_CONFIG.padding);
             UI.ctx.stroke();
         }
 
@@ -130,14 +214,50 @@
             if (data.length > 1) {
                 UI.ctx.beginPath();
                 data.forEach((point, index) => {
-                    const x = 50 + (point.time - (currentTime - timeWindow)) / timeWindow * (UI.canvas.width - 100);
-                    const y = UI.canvas.height - 50 - (point.value / 20) * (UI.canvas.height - 100); // Assuming value range 0-20
+                    const x = GRAPH_CONFIG.padding + (point.time - (currentTime - timeWindow)) / timeWindow * (UI.canvas.width - 2 * GRAPH_CONFIG.padding);
+                    const y = UI.canvas.height - GRAPH_CONFIG.padding - (point.value - GRAPH_CONFIG.yMin) / (GRAPH_CONFIG.yMax - GRAPH_CONFIG.yMin) * (UI.canvas.height - 2 * GRAPH_CONFIG.padding);
                     UI.ctx.lineTo(x, y);
                 });
                 UI.ctx.strokeStyle = color;
+                UI.ctx.lineWidth = 2;
                 UI.ctx.stroke();
             }
         }
+
+        function drawLabels() {
+            UI.ctx.fillStyle = GRAPH_CONFIG.textColor;
+            UI.ctx.font = '12px Arial';
+            UI.ctx.textAlign = 'center';
+            UI.ctx.textBaseline = 'middle';
+
+            // X-axis label
+            UI.ctx.fillText('Time (s)', UI.canvas.width / 2, UI.canvas.height - 10);
+
+            // Y-axis label
+            UI.ctx.save();
+            UI.ctx.translate(15, UI.canvas.height / 2);
+            UI.ctx.rotate(-Math.PI / 2);
+            UI.ctx.fillText('Value', 0, 0);
+            UI.ctx.restore();
+
+            // Y-axis values
+            for (let i = 0; i <= 5; i++) {
+                const y = UI.canvas.height - GRAPH_CONFIG.padding - i * (UI.canvas.height - 2 * GRAPH_CONFIG.padding) / 5;
+                const value = GRAPH_CONFIG.yMin + i * (GRAPH_CONFIG.yMax - GRAPH_CONFIG.yMin) / 5;
+                UI.ctx.fillText(value.toFixed(1), GRAPH_CONFIG.padding - 20, y);
+            }
+
+            // X-axis values
+            const timeWindow = UI.timeWindowInput.value;
+            for (let i = 0; i <= 5; i++) {
+                const x = GRAPH_CONFIG.padding + i * (UI.canvas.width - 2 * GRAPH_CONFIG.padding) / 5;
+                const value = timeWindow - i * timeWindow / 5;
+                UI.ctx.fillText(value.toFixed(0), x, UI.canvas.height - GRAPH_CONFIG.padding + 20);
+            }
+        }
+
+        // Initialize the moving average window
+        updateMovingAverageWindow();
     </script>
 </body>
 
